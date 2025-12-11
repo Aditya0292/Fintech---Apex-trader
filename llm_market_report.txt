@@ -1,0 +1,82 @@
+# XAUUSD Market Analysis Report
+Generated at: 2025-12-09 18:09:23
+Prompt for ChatGPT: 'Analyze the following Gold market data and validate the AI prediction.'
+------------------------------------------------------------
+
+## Timeframe: Daily
+**Price**: 4209.30
+**AI Prediction**: Bullish (39.9%)
+
+### Technical Indicators
+- **RSI (14)**: 71.31
+- **ADX (14)**: 23.73
+- **ATR (14)**: 51.2000
+
+### Support & Resistance (Traditional)
+- R2:    4233.13
+- R1:    4210.17
+- Pivot: 4192.83
+- S1:    4169.87
+- S2:    4152.53
+
+### Context
+- **DXY Trend**: Bearish
+- **News Impact**: 0.00 (Decayed Score)
+
+### AI Trade Plan
+- Entry: 4209.3
+- TP: 4311.7
+- SL: 4132.5
+------------------------------
+
+## Timeframe: 4 Hour
+**Price**: 4233.10
+**AI Prediction**: Bullish (39.9%)
+
+### Technical Indicators
+- **RSI (14)**: 43.41
+- **ADX (14)**: 12.65
+- **ATR (14)**: 32.6929
+
+### Support & Resistance (Traditional)
+- R2:    4237.63
+- R1:    4223.67
+- Pivot: 4210.73
+- S1:    4196.77
+- S2:    4183.83
+
+### Context
+- **DXY Trend**: Bearish
+- **News Impact**: 0.00 (Decayed Score)
+
+### AI Trade Plan
+- Entry: 4233.1
+- TP: 4298.49
+- SL: 4184.06
+------------------------------
+
+## Timeframe: 15 Min
+**Price**: 4215.00
+**AI Prediction**: Neutral (55.9%)
+
+### Technical Indicators
+- **RSI (14)**: 47.83
+- **ADX (14)**: 41.56
+- **ATR (14)**: 5.3143
+
+### Support & Resistance (Traditional)
+- R2:    4220.30
+- R1:    4218.10
+- Pivot: 4214.00
+- S1:    4211.80
+- S2:    4207.70
+
+### Context
+- **DXY Trend**: Bullish
+- **News Impact**: 0.00 (Decayed Score)
+
+### AI Trade Plan
+- Entry: 4215.0
+- TP: 0
+- SL: 0
+------------------------------

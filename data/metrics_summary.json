@@ -1,0 +1,51 @@
+[
+  {
+    "threshold": 0.5,
+    "precision_bull": 0.6883,
+    "precision_bear": 0.5424,
+    "coverage_pct": 12.43,
+    "trade_count": 136
+  },
+  {
+    "threshold": 0.55,
+    "precision_bull": 0.8,
+    "precision_bear": 0.5333,
+    "coverage_pct": 3.66,
+    "trade_count": 40
+  },
+  {
+    "threshold": 0.6,
+    "precision_bull": 1.0,
+    "precision_bear": 0.7143,
+    "coverage_pct": 2.01,
+    "trade_count": 22
+  },
+  {
+    "threshold": 0.65,
+    "precision_bull": 1.0,
+    "precision_bear": 0.6667,
+    "coverage_pct": 1.37,
+    "trade_count": 15
+  },
+  {
+    "threshold": 0.7,
+    "precision_bull": 1.0,
+    "precision_bear": 0,
+    "coverage_pct": 0.46,
+    "trade_count": 5
+  },
+  {
+    "threshold": 0.75,
+    "precision_bull": 1.0,
+    "precision_bear": 0,
+    "coverage_pct": 0.27,
+    "trade_count": 3
+  },
+  {
+    "threshold": 0.8,
+    "precision_bull": 1.0,
+    "precision_bear": 0,
+    "coverage_pct": 0.09,
+    "trade_count": 1
+  }
+]
