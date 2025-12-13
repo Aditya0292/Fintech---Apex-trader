@@ -84,8 +84,12 @@ def get_multi_asset_analysis(symbols: list = None):
         }
         
         # News for Asset
-        events = nm.get_asset_events(symbol)
-        asset_result['news'] = events
+        try:
+            events = nm.get_asset_events(symbol)
+            asset_result['news'] = events
+        except Exception as e:
+            logger.error(f"News fetch failed for {symbol}: {e}")
+            asset_result['news'] = []
         
         results_map = {}
         
@@ -105,7 +109,9 @@ def get_multi_asset_analysis(symbols: list = None):
                 predictor = Predictor(timeframe=tf_name, run_id=run_suffix, symbol=symbol) 
                 res = predictor.predict(df)
                 
-                if "error" in res: continue
+                if "error" in res:
+                    logger.error(f"Prediction error for {symbol} {tf_name}: {res['error']}")
+                    continue
                 
                 results_map[tf_name] = res
                 

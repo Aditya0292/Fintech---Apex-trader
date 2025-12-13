@@ -79,7 +79,15 @@ def load_data(suffix=""):
 
 from src.models.model_factory import ModelFactory # Updated location
 
+import tensorflow.keras.backend as K
+
 def load_all_models(input_shape, suffix=""):
+    # Clear previous Keras session to prevent memory leak/OOM
+    try:
+        K.clear_session()
+    except:
+        pass
+
     logger.info(f"Loading models (Suffix: {suffix})...")
     
     if suffix:

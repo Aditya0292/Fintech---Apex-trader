@@ -70,6 +70,16 @@ class DataProvider:
         except Exception as e:
              logger.warning(f"Scraper failed: {e}. Falling back to API.")
 
+        # 0.5 Check Cache Freshness (Optimization)
+        if os.path.exists(self.news_cache_file):
+            try:
+                mtime = os.path.getmtime(self.news_cache_file)
+                if (time.time() - mtime) < 3600: # 1 Hour Cache
+                    logger.info("Using cached Economic Calendar (Fresh < 1h)")
+                    return self._load_cache()
+            except:
+                pass
+
         # Sources
         sources = [
             {"type": "json", "url": "https://nfs.faireconomy.media/ff_calendar_thisweek.json"},
