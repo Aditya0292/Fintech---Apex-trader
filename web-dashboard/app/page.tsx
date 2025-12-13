@@ -29,11 +29,13 @@ export default function Dashboard() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
 
-    const fetchData = async () => {
+    const fetchData = async (forceRefresh = false) => {
         setLoading(true);
         try {
             // Call our Next.js API route
-            const res = await axios.get('/api/predict_all?assets=all');
+            // Force refresh bypasses the 5m cache
+            const url = `/api/predict_all?assets=all${forceRefresh ? '&refresh=true' : ''}`;
+            const res = await axios.get(url);
             if (res.data.error) throw new Error(res.data.error);
             setData(res.data);
             setError('');
@@ -45,7 +47,7 @@ export default function Dashboard() {
     };
 
     useEffect(() => {
-        fetchData();
+        fetchData(); // Default: Use Cache
     }, []);
 
     // --- RENDERING HELPERS ---
@@ -59,9 +61,59 @@ export default function Dashboard() {
 
     if (loading && !data) {
         return (
-            <div className="flex items-center justify-center min-h-screen bg-background text-primary animate-pulse">
-                <Zap className="h-12 w-12 mb-4" />
-                <p className="text-xl font-bold ml-2">INITIALIZING APEX CORE...</p>
+            <div className="min-h-screen bg-background p-6 md:p-8 space-y-8 text-white">
+                {/* Skeleton Header */}
+                <div className="flex justify-between items-center border-b border-border pb-6">
+                    <div className="space-y-2">
+                        <div className="h-8 w-48 bg-secondary/50 rounded animate-pulse" />
+                        <div className="h-4 w-64 bg-secondary/30 rounded animate-pulse" />
+                    </div>
+                </div>
+
+                {/* Skeleton Stats Grid */}
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    {/* Ranking Skeleton */}
+                    <div className="lg:col-span-2 h-[300px] bg-card rounded-xl border border-border p-6 space-y-4 animate-pulse">
+                        <div className="h-6 w-32 bg-secondary/50 rounded" />
+                        <div className="space-y-3">
+                            {[1, 2, 3, 4].map(i => (
+                                <div key={i} className="h-10 w-full bg-secondary/20 rounded" />
+                            ))}
+                        </div>
+                    </div>
+                    {/* CSM Skeleton */}
+                    <div className="h-[300px] bg-card rounded-xl border border-border p-6 space-y-4 animate-pulse">
+                        <div className="h-6 w-32 bg-secondary/50 rounded" />
+                        <div className="space-y-3">
+                            {[1, 2, 3, 4, 5, 6].map(i => (
+                                <div key={i} className="flex gap-2 items-center">
+                                    <div className="h-4 w-8 bg-secondary/30 rounded" />
+                                    <div className="flex-1 h-2 bg-secondary/30 rounded" />
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+
+                {/* Skeleton Asset Grid */}
+                <div>
+                    <div className="h-6 w-32 bg-secondary/50 rounded mb-6 animate-pulse" />
+                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
+                        {[1, 2, 3, 4].map(i => (
+                            <div key={i} className="h-[200px] bg-card rounded-xl border border-border p-6 space-y-4 animate-pulse">
+                                <div className="flex justify-between">
+                                    <div className="h-6 w-24 bg-secondary/50 rounded" />
+                                    <div className="h-6 w-12 bg-secondary/50 rounded" />
+                                </div>
+                                <div className="h-20 bg-secondary/20 rounded" />
+                                <div className="flex justify-between pt-4 border-t border-border/50">
+                                    <div className="h-4 w-16 bg-secondary/30 rounded" />
+                                    <div className="h-4 w-24 bg-secondary/30 rounded" />
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
             </div>
         );
     }
@@ -72,7 +124,7 @@ export default function Dashboard() {
                 <AlertTriangle className="h-16 w-16 mb-4" />
                 <h1 className="text-2xl font-bold">SYSTEM ERROR</h1>
                 <p>{error}</p>
-                <button onClick={fetchData} className="mt-4 px-4 py-2 bg-secondary rounded hover:bg-secondary/80">Retry</button>
+                <button onClick={() => fetchData(true)} className="mt-4 px-4 py-2 bg-secondary rounded hover:bg-secondary/80">Retry</button>
             </div>
         );
     }
@@ -99,7 +151,7 @@ export default function Dashboard() {
                     <Badge variant="outline" className="py-1 px-3 border-primary/30 text-primary">
                         <ShieldCheck className="w-3 h-3 mr-2" /> REGULATORY CHECK PASS
                     </Badge>
-                    <button onClick={fetchData} disabled={loading} className="p-2 rounded-full hover:bg-secondary transition-colors disabled:opacity-50">
+                    <button onClick={() => fetchData(true)} disabled={loading} className="p-2 rounded-full hover:bg-secondary transition-colors disabled:opacity-50">
                         <RefreshCw className={`w-5 h-5 ${loading ? 'animate-spin' : ''}`} />
                     </button>
                 </div>

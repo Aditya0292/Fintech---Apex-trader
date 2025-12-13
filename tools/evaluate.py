@@ -97,11 +97,14 @@ def load_all_models(input_shape, suffix=""):
             model_xgb = None
 
         # LightGBM
-        try:
-            model_lgb = lgb.Booster(model_file=str(config.MODEL_DIR / f"lightgbm_model{suffix_clean}.txt"))
-        except Exception as e:
-            print(f"  Warning: LightGBM load failed: {e}")
-            model_lgb = None
+        # try:
+        #     model_lgb = lgb.Booster(model_file=str(config.MODEL_DIR / f"lightgbm_model{suffix_clean}.txt"))
+        # except Exception as e:
+        #     print(f"  Warning: LightGBM load failed: {e}")
+        #     model_lgb = None
+        print("  Warning: LightGBM disabled due to known model format error on this environment.")
+        model_lgb = None
+
 
         # Keras Models (Rebuild and Load Weights)
         print("  Rebuilding Keras models...")
