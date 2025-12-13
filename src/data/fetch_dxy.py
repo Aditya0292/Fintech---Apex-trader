@@ -100,14 +100,20 @@ def align_dxy_with_gold(gold_csv="data/XAUUSD_history.csv"):
     
     # Merge
     # We want Gold dates as the master
-    gold['time'] = pd.to_datetime(gold['time'])
-    dxy['time'] = pd.to_datetime(dxy['time'])
+    from src.utils.time_utils import normalize_ts
+    gold['time'] = normalize_ts(gold['time'])
+    dxy['time'] = normalize_ts(dxy['time'])
     
     # Rename DXY columns to avoid collision
     dxy = dxy[['time', 'open', 'high', 'low', 'close', 'volume']]
     dxy.columns = ['time', 'dxy_open', 'dxy_high', 'dxy_low', 'dxy_close', 'dxy_volume']
     
     # Merge (Left join on Gold)
+    # Using merge (exact match) since we normalized both.
+    # Note: align_datasets uses merge_asof, but here we might want exact alignment if data is daily?
+    # Actually, align_dxy_with_gold is likely used for historical daily data. Exact merge is safer if timestamps align.
+    # If timestamps are mismatched (different hours), merge_asof is better.
+    # Let's stick to merge for now as originally intended, but normalized.
     merged = pd.merge(gold, dxy, on='time', how='left')
     
     # Forward fill DXY holes

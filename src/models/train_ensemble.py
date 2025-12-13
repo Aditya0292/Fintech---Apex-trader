@@ -228,6 +228,10 @@ if __name__ == "__main__":
     import os
     parser = argparse.ArgumentParser()
     parser.add_argument("--suffix", type=str, default="")
+    parser.add_argument("--n_splits", type=int, default=5)
     args = parser.parse_args()
+    
+    # Override config
+    config.N_SPLITS = args.n_splits
     
     train_ensemble(args.suffix)

@@ -2,3 +2,22 @@ __pycache__/
 *.npy
 *.pkl
 *.h5npy
+
+# Node/Next.js
+node_modules/
+.next/
+out/
+build/
+.DS_Store
+.env
+.env.local
+
+# Logs & Debug
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+prediction_logs.txt
+debug_crash.txt
+out_test*.json
+out_test_log*.txt

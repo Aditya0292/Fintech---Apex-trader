@@ -9,7 +9,7 @@ Integrates:
 - Classical Technical Indicators
 - Multi-Timeframe Features (Logic Ready)
 - Confluence Detection
-- External Data (DXY, News - Placeholders)
+- External Data (DXY, News, CSM)
 
 Target: 3-Class Classification (Bearish, Bullish, Neutral) with 0.1% threshold
 """
@@ -23,38 +23,50 @@ from pathlib import Path
 import warnings
 import sys
 import os
+import json
 
 # Add root to sys.path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 
 warnings.filterwarnings('ignore')
 
+from src.utils.config_loader import config as global_config
+from src.utils.time_utils import normalize_ts, align_datasets
+from src.utils.schema_validator import validate_feature_schema
+from src.utils.logger import get_logger
+from src.data.csm_provider import CSMProvider
+from src.data.news_manager import NewsManager
+
+logger = get_logger()
+
 # ============================================================================
 # CONFIGURATION
 # ============================================================================
 
 class Config:
-    # Data
-    WINDOW = 50  # Sequence length for LSTM
-    MIN_PERIODS = 200  # For indicators
-    
-    # Structure Detection
-    SWING_LENGTH = 10  # Reduced for more sensitivity matching ICT
-    INTERNAL_LENGTH = 3  # Internal structure
-    
-    # Thresholds
-    MOVEMENT_THRESHOLD = 0.001  # 0.1% for classification target
-    EQH_EQL_THRESHOLD = 0.0005  # Equal highs/lows tolerance (precise)
-    FVG_MIN_SIZE = 0.0002  # Minimum FVG size (0.02%)
-    
-    # Pivot
-    PIVOT_TYPES = ['traditional', 'fibonacci', 'camarilla', 'woodie', 'demark']
-    
-    # Outputs
-    OUTPUT_DIR = Path("data")
-    FEATURE_CSV = "features_enhanced.csv" # output relative to OUTPUT_DIR? No, usually code uses full path. Let's fix Config.
-    
     def __init__(self):
+        feat_conf = global_config.get('features', {})
+        
+        # Data
+        self.WINDOW = feat_conf.get('window_size', 50)
+        self.MIN_PERIODS = feat_conf.get('min_periods', 200)
+        
+        # Structure Detection
+        self.SWING_LENGTH = feat_conf.get('swing_length', 10)
+        self.INTERNAL_LENGTH = feat_conf.get('internal_structure_length', 3)
+        
+        # Thresholds
+        self.MOVEMENT_THRESHOLD = feat_conf.get('movement_threshold', 0.0002) # Tuning: 0.02% for Forex Sensitivity
+        self.EQH_EQL_THRESHOLD = feat_conf.get('eqh_eql_threshold', 0.0005)
+        self.FVG_MIN_SIZE = feat_conf.get('fvg_min_size', 0.0002)
+        
+        # Pivot
+        self.PIVOT_TYPES = feat_conf.get('pivot_types', ['traditional', 'fibonacci'])
+        
+        # Outputs
+        self.OUTPUT_DIR = Path("data")
+        self.SCHEMA_PATH = feat_conf.get('schema_path', "src/config/feature_schema_v2.json")
+        
         self.OUTPUT_DIR.mkdir(exist_ok=True)
 
 config = Config()
@@ -65,7 +77,13 @@ config = Config()
 
 def safe_divide(a: pd.Series, b: pd.Series, fill: float = 0.0) -> pd.Series:
     """Safe division avoiding divide by zero"""
-    return a / b.replace(0, np.nan).fillna(fill)
+    if fill == 0.0:
+        # Standard case: div by zero = 0
+        return (a / b.replace(0, np.nan)).fillna(fill)
+    else:
+        # General case
+        res = a / b.replace(0, np.nan)
+        return res.fillna(fill)
 
 def normalize_to_atr(value: pd.Series, atr: pd.Series) -> pd.Series:
     """Normalize values to ATR for scale-invariance"""
@@ -160,48 +178,18 @@ class MarketStructure:
     
     @staticmethod
     def detect_swing_points(df: pd.DataFrame, length: int = 50) -> Tuple[pd.Series, pd.Series]:
-        """
-        Detect swing highs and lows using a centered window
-        """
         highs = df['high']
         lows = df['low']
         
         swing_high = pd.Series(np.nan, index=df.index)
         swing_low = pd.Series(np.nan, index=df.index)
         
-        # Vectorized approach roughly or rolling max
-        # A swing high is max of window [i-length, i+length] at i
-        # We need to shift to align processing. 
-        # Using rolling max with center=True
-        
         roll_max = highs.rolling(window=2*length+1, center=True).max()
         roll_min = lows.rolling(window=2*length+1, center=True).min()
         
-        # Identify where High == Roll_Max
         is_swing_high = (highs == roll_max) 
         is_swing_low = (lows == roll_min)
         
-        # We can't know future for today's detection in live mode, BUT for labeling history we can.
-        # For LIVE (causal) feature generation:
-        # We detect a swing point 'length' bars ago.
-        # So at time t, we know if t-length was a swing high.
-        # This pipeline processes historical data for training, so centered is fine for labeling,
-        # but for Features used in prediction at time t, we can only know swings resolved <= t.
-        # We will use lag-based labeling to ensure causality if we were plotting, 
-        # but for ML features: "dist_to_last_swing_high" implies the last CONFIRMED swing.
-        
-        # Let's stick to the causal definition:
-        # A swing high is confirmed when we have 'length' lower bars after it.
-        # So at index i, check if i-length was the high of i-2*length to i.
-        
-        # Logic:
-        # At index i, look back at candle i-length.
-        # Is (i-length) > all candles in (i-2*length ... i-length-1) AND (i-length) > all candles in (i-length+1 ... i)
-        
-        # We will assign the swing value at the time it occurred, but typically we only know it later.
-        # We'll stick to the "last_swing_high" feature which just holds the value of the last identified one.
-        
-        # For identifying points:
         swing_high[is_swing_high] = highs[is_swing_high]
         swing_low[is_swing_low] = lows[is_swing_low]
         
@@ -209,51 +197,34 @@ class MarketStructure:
     
     @staticmethod
     def label_structure(df: pd.DataFrame, swing_high: pd.Series, swing_low: pd.Series) -> pd.DataFrame:
-        """
-        Label structure as HH, HL, LH, LL
-        """
         df = df.copy()
         df['swing_high'] = swing_high
         df['swing_low'] = swing_low
         
-        # Forward fill to get "last known" swing
-        # Note: In a causal system, valid_swing_high is only known 'length' bars after.
-        # But for 'last_swing_high' feature used at time t, we usually take the most recently confirmed one.
-        # We will assume swing_high/low contains confirmed swings (aligned to their occurrence date, but we ffill).
-        
         df['last_swing_high'] = swing_high.fillna(method='ffill')
         df['last_swing_low'] = swing_low.fillna(method='ffill')
         
-        df['prev_swing_high'] = df['last_swing_high'].shift(1) # shift logic slightly flawed with ffill, need unique values
-        # Better: Group continuous segments of ffilled values
+        df['prev_swing_high'] = df['last_swing_high'].shift(1)
         
-        # Structure labels (simplified for brevity)
         df['structure'] = 0 
         
         return df
 
     @staticmethod
     def detect_bos_choch(df: pd.DataFrame) -> pd.DataFrame:
-        """
-        Detect Break of Structure (BOS) and Change of Character (CHoCH)
-        """
         df = df.copy()
         df['bos_bullish'] = 0
         df['bos_bearish'] = 0
         
-        # Logic: Close crossing last swing
-        # To avoid noise, use confirmed swings
         last_high = df['last_swing_high']
         last_low = df['last_swing_low']
         
-        # Breakout
         break_high = (df['close'] > last_high) & (df['close'].shift(1) <= last_high)
         break_low = (df['close'] < last_low) & (df['close'].shift(1) >= last_low)
         
         df.loc[break_high, 'bos_bullish'] = 1
         df.loc[break_low, 'bos_bearish'] = 1
         
-        # Trend
         df['trend'] = 0
         df.loc[break_high, 'trend'] = 1
         df.loc[break_low, 'trend'] = -1
@@ -270,19 +241,11 @@ class OrderBlocks:
     
     @staticmethod
     def detect_order_blocks(df: pd.DataFrame) -> pd.DataFrame:
-        """
-        Bullish OB: Last down-candle before a strong up-move (BOS)
-        """
         df = df.copy()
         df['ob_bullish'] = 0
         df['ob_bearish'] = 0
         df['ob_bottom'] = np.nan
         df['ob_top'] = np.nan
-        
-        # We iterate to find OBs associated with BOS
-        # This is slow, but SMC logic is sequential
-        
-        # Initialize columns for OB properties
         df['ob_strength'] = 0.0
         df['ob_mitigated'] = 0 # Touched/Filled
         
@@ -290,27 +253,20 @@ class OrderBlocks:
         
         for idx in bos_bull_indices:
             loc = df.index.get_loc(idx)
-            # Scan backwards for the last bearish candle (Close < Open)
-            # Limit scan to 10 candles
             for i in range(1, 15):
                 if loc - i < 0: break
                 
                 start_idx = loc - i
                 row = df.iloc[start_idx]
                 
-                # Check for bearish candle
                 if row['close'] < row['open']:
-                    # Found Bullish OB candidate
                     df.iat[start_idx, df.columns.get_loc('ob_bullish')] = 1
                     df.iat[start_idx, df.columns.get_loc('ob_bottom')] = row['low']
                     df.iat[start_idx, df.columns.get_loc('ob_top')] = row['high']
-                    
-                    # Strength: Volume / body size
                     strength = row['volume'] if 'volume' in df.columns else 1.0
                     df.iat[start_idx, df.columns.get_loc('ob_strength')] = strength
                     break
         
-        # Bearish OBs
         bos_bear_indices = df.index[df['bos_bearish'] == 1]
         for idx in bos_bear_indices:
             loc = df.index.get_loc(idx)
@@ -326,10 +282,6 @@ class OrderBlocks:
                     df.iat[start_idx, df.columns.get_loc('ob_strength')] = row['volume'] if 'volume' in df.columns else 1.0
                     break
                     
-        # Forward fill active OBs (simplified assumption: last OB detects validation)
-        # Real SMC keeps a list of active UNMITIGATED OBs.
-        # For features, we just track "inside closest OB"
-        
         df['active_ob_bull_top'] = df['ob_top'].where(df['ob_bullish']==1).fillna(method='ffill')
         df['active_ob_bull_bot'] = df['ob_bottom'].where(df['ob_bullish']==1).fillna(method='ffill')
         
@@ -343,15 +295,9 @@ class OrderBlocks:
 
     @staticmethod
     def detect_liquidity_sweeps(df: pd.DataFrame) -> pd.DataFrame:
-        """
-        Detects if current candle swept liquidity (wick went beyond swing, body closed inside)
-        """
         df = df.copy()
         
-        # Sweep High: High > Last Swing High, Close < Last Swing High
         sweep_high = (df['high'] > df['last_swing_high']) & (df['close'] < df['last_swing_high'])
-        
-        # Sweep Low: Low < Last Swing Low, Close > Last Swing Low
         sweep_low = (df['low'] < df['last_swing_low']) & (df['close'] > df['last_swing_low'])
         
         df['sweep_liquidity_high'] = sweep_high.astype(int)
@@ -375,24 +321,18 @@ class FairValueGaps:
         high = df['high']
         low = df['low']
         
-        # Bull FVG: (Low[i] > High[i-2])
-        # We index at i (the confirmation candle). Gap is between i-2 and i.
-        # Actually standard definition: Candle 1 High < Candle 3 Low (Bullish)
-        
         c1_high = high.shift(2)
         c3_low = low
         
         bull_fvg = (c3_low > c1_high) & ((c3_low - c1_high) > (df['close'] * config.FVG_MIN_SIZE))
         df.loc[bull_fvg, 'fvg_bullish'] = 1
         
-        # Bear FVG: Candle 1 Low > Candle 3 High
         c1_low = low.shift(2)
         c3_high = high
         
         bear_fvg = (c3_high < c1_low) & ((c1_low - c3_high) > (df['close'] * config.FVG_MIN_SIZE))
         df.loc[bear_fvg, 'fvg_bearish'] = 1
         
-        # Store FVG boundaries
         df['fvg_bull_top'] = np.nan
         df['fvg_bull_bot'] = np.nan
         df.loc[bull_fvg, 'fvg_bull_top'] = c3_low
@@ -403,13 +343,11 @@ class FairValueGaps:
         df.loc[bear_fvg, 'fvg_bear_top'] = c1_low
         df.loc[bear_fvg, 'fvg_bear_bot'] = c3_high
         
-        # Active FVG (last one)
         df['active_fvg_bull_top'] = df['fvg_bull_top'].fillna(method='ffill')
         df['active_fvg_bull_bot'] = df['fvg_bull_bot'].fillna(method='ffill')
         df['active_fvg_bear_top'] = df['fvg_bear_top'].fillna(method='ffill')
         df['active_fvg_bear_bot'] = df['fvg_bear_bot'].fillna(method='ffill')
         
-        # Inside FVG
         df['inside_fvg_bull'] = ((df['low'] <= df['active_fvg_bull_top']) & 
                                  (df['high'] >= df['active_fvg_bull_bot'])).astype(int)
         df['inside_fvg_bear'] = ((df['high'] >= df['active_fvg_bear_bot']) & 
@@ -437,10 +375,7 @@ class PremiumDiscount:
         df['in_premium'] = (df['range_position'] > 0.5).astype(int)
         df['in_discount'] = (df['range_position'] < 0.5).astype(int)
         
-        # OTE
         df['in_ote_bull'] = ((df['range_position'] >= 0.214) & (df['range_position'] <= 0.382)).astype(int) 
-        # Note: 1 - 0.786 = 0.214 (Retracement from low relative to range)
-        
         df['in_ote_bear'] = ((df['range_position'] >= 0.618) & (df['range_position'] <= 0.786)).astype(int)
         
         return df
@@ -455,7 +390,6 @@ class PivotPoints:
     @staticmethod
     def calculate_all_pivots(df: pd.DataFrame) -> pd.DataFrame:
         df = df.copy()
-        # Shift OHLC by 1 to use previous day for today's pivots
         ph = df['high'].shift(1)
         pl = df['low'].shift(1)
         pc = df['close'].shift(1)
@@ -489,23 +423,18 @@ class ConfluenceDetector:
     def calculate_confluence_score(df: pd.DataFrame, atr: pd.Series) -> pd.Series:
         score = pd.Series(0.0, index=df.index)
         
-        # 1. OB Alignment
         score += df['inside_ob_bull'] * 20
         score += df['inside_ob_bear'] * 20
         
-        # 2. FVG Alignment
         score += df['inside_fvg_bull'] * 20
         score += df['inside_fvg_bear'] * 20
         
-        # 3. Liquidity Sweep
         score += df['sweep_liquidity_low'] * 15 # Bullish reversaL
         score += df['sweep_liquidity_high'] * 15 # Bearish reversal
         
-        # 4. Premium/Discount
         score += df['in_discount'] * 10
         score += df['in_premium'] * 10
         
-        # 5. OTE
         score += df['in_ote_bull'] * 15
         score += df['in_ote_bear'] * 15
         
@@ -518,7 +447,8 @@ class ConfluenceDetector:
 class FeatureEngineering:
     """Main feature engineering pipeline"""
     
-    def __init__(self):
+    def __init__(self, symbol: str = "XAUUSD"):
+        self.symbol = symbol
         self.tech = TechnicalIndicators()
         self.structure = MarketStructure()
         self.ob = OrderBlocks()
@@ -526,45 +456,152 @@ class FeatureEngineering:
         self.zones = PremiumDiscount()
         self.pivots = PivotPoints()
         self.confluence = ConfluenceDetector()
+        self.csm_provider = CSMProvider()
+        self.news_manager = NewsManager()
     
     def _add_external_features(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        Add DXY and News features.
-        Since we don't have DXY live data, we return empty/placeholders.
+        Add DXY and News features with strict Timezone alignment using align_datasets.
         """
-        # Placeholder for DXY correlation
-        df['dxy_corr_30d'] = 0.0
-        # Placeholder for News Sentiment
-        df['news_sentiment'] = 0.0
-        df['news_impact'] = 0.0 # 0=Low, 1=Med, 2=High
+        # Gold Technicals first (Internal dependency)
+        df['gold_ema_50'] = self.tech.ema(df['close'], 50)
+        df['gold_ema_200'] = self.tech.ema(df['close'], 200)
+        df['gold_trend'] = np.where(df['close'] > df['gold_ema_50'], 1, -1)
         
+        # --- DXY INTEGRATION (Legacy but Global) ---
+        try:
+            from src.data.fetch_dxy import align_dxy_with_gold
+            # TODO: Make this path dynamic or fetch generic DXY
+            dxy_df = align_dxy_with_gold("data/XAUUSD_history.csv")
+            
+            if dxy_df is not None:
+                dxy_df.columns = [
+                    f"dxy_{c}" if c != 'time' and not c.startswith('dxy_') else c 
+                    for c in dxy_df.columns
+                ]
+                dxy_df = dxy_df.loc[:, ~dxy_df.columns.duplicated()]
+                
+                df = align_datasets(df, dxy_df, on='time', tolerance='4h')
+                
+                df['dxy_close'] = df['dxy_close'].fillna(method='ffill')
+                df['dxy_open'] = df['dxy_open'].fillna(method='ffill')
+                df['dxy_rsi'] = self.tech.rsi(df['dxy_close'])
+                df['dxy_ema_50'] = self.tech.ema(df['dxy_close'], 50)
+                df['dxy_trend'] = np.where(df['dxy_close'] > df['dxy_ema_50'], 1, -1)
+                # Correction: Correlation should be against the asset close, not hardcoded gold
+                df['gold_dxy_corr'] = df['close'].rolling(window=30).corr(df['dxy_close'])
+                
+                # Confluence
+                # Determine expected correlation w/ DXY
+                # USDJPY (USD Base) -> Positive Correlation (DXY Up = Pair Up)
+                # EURUSD/XAUUSD (USD Quote) -> Negative Correlation (DXY Up = Pair Down)
+                is_direct_correlation = self.symbol.startswith('USD') and not self.symbol.endswith('USD')
+                
+                if is_direct_correlation:
+                     # Direct Confluence
+                     df['inverse_confluence'] = np.where((df['gold_trend'] == 1) & (df['dxy_trend'] == 1), 1, 0)
+                     df['inverse_confluence'] = np.where((df['gold_trend'] == -1) & (df['dxy_trend'] == -1), -1, df['inverse_confluence'])
+                else:
+                     # Inverse Confluence (Original Logic)
+                     df['inverse_confluence'] = np.where((df['gold_trend'] == 1) & (df['dxy_trend'] == -1), 1, 0)
+                     df['inverse_confluence'] = np.where((df['gold_trend'] == -1) & (df['dxy_trend'] == 1), -1, df['inverse_confluence'])
+            else:
+                 raise ValueError("DXY Data None")
+        except Exception as e:
+            # logger.warning(f"DXY Integration warning: {e}")
+            # Fill defaults
+            cols = ['dxy_close', 'dxy_open', 'dxy_rsi', 'dxy_ema_50', 'dxy_trend', 'gold_dxy_corr', 'inverse_confluence']
+            for c in cols: df[c] = 0.0
+
+        # --- CSM INTEGRATION ---
+        try:
+            assets_conf = global_config.get('assets', {})
+            these_assets = assets_conf.get(self.symbol, {})
+            currencies = these_assets.get('csm_currencies', ['USD'])
+            
+            csm_df = self.csm_provider.get_csm_data(df['time'].min(), df['time'].max(), currencies)
+            
+            if csm_df is not None and not csm_df.empty:
+                df = align_datasets(df, csm_df, on='time', tolerance='1h')
+                
+                # Calculate diff
+                if len(currencies) >= 2:
+                    base, quote = currencies[0], currencies[1]
+                    df['csm_base'] = df.get(f'csm_{base}', 5.0)
+                    df['csm_quote'] = df.get(f'csm_{quote}', 5.0)
+                    df['csm_diff'] = df['csm_base'] - df['csm_quote']
+                else:
+                     df['csm_base'] = 5.0
+                     df['csm_quote'] = df.get(f'csm_USD', 5.0)
+                     df['csm_diff'] = 5.0 - df['csm_quote']
+            else:
+                 df['csm_base'] = 5.0
+                 df['csm_quote'] = 5.0
+                 df['csm_diff'] = 0.0
+        except Exception as e:
+            logger.warning(f"CSM Integration failed: {e}")
+            df['csm_base'] = 0.0
+            df['csm_quote'] = 0.0
+            df['csm_diff'] = 0.0
+        
+        # Check CSM NaNs
+        for col in ['csm_base', 'csm_quote', 'csm_diff']:
+            if col not in df.columns: df[col] = 0.0
+            df[col] = df[col].fillna(0.0)
+
+        # --- NEWS INTEGRATION V2 ---
+        try:
+            news_df = self.news_manager.aggregate_impact_for_symbol(df['time'], self.symbol)
+            if news_df is not None:
+                if 'time' not in news_df.columns:
+                     news_df = news_df.reset_index().rename(columns={'index': 'time'})
+                
+                df = align_datasets(df, news_df, on='time', tolerance='4h')
+            
+            # Legacy Map
+            if 'news_impact_net' in df.columns:
+                df['news_sentiment'] = df['news_impact_net'] 
+                df['news_impact_score'] = df['news_impact_net'] * df.get('adx', 0) / 100.0
+            else:
+                df['news_sentiment'] = 0.0
+                df['news_impact_score'] = 0.0
+
+            # Specific impacts
+            if len(currencies) >= 1:
+                base = currencies[0]
+                df['news_impact_base'] = df.get(f'news_impact_{base}', 0.0)
+            else:
+                df['news_impact_base'] = 0.0
+                
+            if len(currencies) >= 2:
+                quote = currencies[1]
+                df['news_impact_quote'] = df.get(f'news_impact_{quote}', 0.0)
+            else:
+                df['news_impact_quote'] = df.get('news_impact_USD', 0.0)
+        except Exception as e:
+             logger.warning(f"News Integration V2 failed: {e}")
+        
+        # Final cleanup for all V2 external columns
+        v2_cols = ['news_impact_base', 'news_impact_quote', 'news_impact_net', 'news_sentiment', 'news_impact_score',
+                   'csm_base', 'csm_quote', 'csm_diff']
+        for c in v2_cols:
+            if c not in df.columns: df[c] = 0.0
+            df[c] = df[c].fillna(0.0)
+
         return df
 
     def create_targets(self, df: pd.DataFrame) -> Tuple[np.ndarray, np.ndarray]:
         """
-        Create strict 3-class targets based on 0.1% threshold.
-        Target is NEXT DAY return using Close-to-Close or Open-to-Close?
-        User said: "Entry: Next day open... Exit: Next day close".
-        So prediction is for (Next Close - Next Open).
-        
-        Let T = Today (prediction time).
-        We want to predict Return(T+1) = (Close[T+1] - Open[T+1]) / Open[T+1].
-        
-        Shift: 
-        return_next = (close.shift(-1) - open.shift(-1)) / open.shift(-1)
+        Create strict 3-class targets based on movement threshold.
         """
-        
-        # Calculate Next Day Return (Intraday)
         next_open = df['open'].shift(-1)
         next_close = df['close'].shift(-1)
         
-        # Avoid division by zero
         ret = (next_close - next_open) / next_open
         ret = ret.fillna(0)
         
-        threshold = config.MOVEMENT_THRESHOLD # 0.001
+        threshold = config.MOVEMENT_THRESHOLD
         
-        # Classes: 0=Bearish (< -0.1%), 1=Bullish (> +0.1%), 2=Neutral
         targets = np.zeros(len(df), dtype=int)
         targets[:] = 2 # Default Neutral
         
@@ -574,13 +611,15 @@ class FeatureEngineering:
         return targets, ret.values
 
     def build_features(self, df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame]:
-        print("Building features...")
+        logger.info("Building features...")
+        if isinstance(df, pd.DataFrame):
+            df.columns = df.columns.str.strip().str.lower()
+        
         df = df.copy()
         
-        # (Moved Phase 2 Integration to after Classical features)
-
-        # ---------------------------------------
-    
+        # Pre-normalize Main DF Time
+        df['time'] = normalize_ts(df['time'])
+        
         # 1. Classical
         df['atr'] = self.tech.atr(df)
         df['rsi'] = self.tech.rsi(df['close'])
@@ -588,71 +627,6 @@ class FeatureEngineering:
         df['macd'], _, _ = self.tech.macd(df['close'])
         df['adx'] = self.tech.adx(df)
 
-        # --- PHASE 2 INTEGRATION: DXY & NEWS ---
-        # --- PHASE 2 INTEGRATION: DXY & NEWS ---
-        from src.data.fetch_dxy import align_dxy_with_gold
-        from src.data.news_sentiment import simulate_news_impact
-        
-        # 1. Align DXY
-        print("  Merging DXY data...")
-        try:
-            dxy_df = align_dxy_with_gold("data/XAUUSD_history.csv")
-            if dxy_df is not None:
-                dxy_subset = dxy_df[['time', 'dxy_close', 'dxy_open']]
-                dxy_subset['time'] = pd.to_datetime(dxy_subset['time'])
-                df['time'] = pd.to_datetime(df['time'])
-                
-                df = pd.merge(df, dxy_subset, on='time', how='left')
-                df['dxy_close'] = df['dxy_close'].fillna(method='ffill')
-                
-                # DXY Features
-                df['dxy_rsi'] = self.tech.rsi(df['dxy_close'])
-                df['dxy_ema_50'] = self.tech.ema(df['dxy_close'], 50)
-                df['dxy_trend'] = np.where(df['dxy_close'] > df['dxy_ema_50'], 1, -1)
-                
-                # Correlation
-                df['gold_dxy_corr'] = df['close'].rolling(window=30).corr(df['dxy_close'])
-                
-                # Confluence
-                df['gold_ema_50'] = self.tech.ema(df['close'], 50)
-                df['gold_trend'] = np.where(df['close'] > df['gold_ema_50'], 1, -1)
-                
-                df['inverse_confluence'] = np.where((df['gold_trend'] == 1) & (df['dxy_trend'] == -1), 1, 0)
-                df['inverse_confluence'] = np.where((df['gold_trend'] == -1) & (df['dxy_trend'] == 1), -1, df['inverse_confluence'])
-            else:
-                # DXY fetch returned None (failed synthetic?)
-                raise ValueError("DXY Data is None")
-                
-        except Exception as e:
-            print(f"  Warning: DXY Integration failed: {e}")
-            # Fallback Defaults (MUST MATCH Training Features)
-            df['dxy_close'] = df['close'] # Dummy
-            df['dxy_open'] = df['open']
-            df['dxy_rsi'] = 50.0
-            df['dxy_ema_50'] = df['close']
-            df['dxy_trend'] = 0
-            df['gold_dxy_corr'] = -0.8 
-            df['inverse_confluence'] = 0
-            # Ensure safe fills
-            df['dxy_close'] = df['dxy_close'].fillna(0)
-
-        # 2. News Sentiment
-        print("  Merging News Sentiment...")
-        try:
-            news_df = simulate_news_impact(df['time'])
-            news_df['time'] = pd.to_datetime(news_df['time'])
-            
-            df = pd.merge(df, news_df, on='time', how='left')
-            df['news_sentiment'] = df['news_sentiment'].fillna(0)
-            
-            # Impact Feature (Now Safe because ADX exists)
-            df['news_impact_score'] = df['news_sentiment'] * df['adx'] / 100.0
-            
-        except Exception as e:
-            print(f"  Warning: News Integration failed: {e}")
-            df['news_sentiment'] = 0
-            df['news_impact_score'] = 0
-        
         # 2. Market Structure (SMC)
         swing_high, swing_low = self.structure.detect_swing_points(df, config.SWING_LENGTH)
         df = self.structure.label_structure(df, swing_high, swing_low)
@@ -662,9 +636,16 @@ class FeatureEngineering:
         df = self.ob.detect_order_blocks(df)
         df = self.fvg.detect_fvg(df)
         df = self.ob.detect_liquidity_sweeps(df)
+
+        # SMC Densities
+        window_density = 50
+        df['fvg_density'] = (df['fvg_bullish'] + df['fvg_bearish']).rolling(window_density).sum()
+        df['ob_density'] = (df['ob_bullish'] + df['ob_bearish']).rolling(window_density).sum()
         
         # 4. Zones
         df = self.zones.calculate_zones(df)
+        df['is_in_premium'] = df['in_premium']
+        df['is_in_discount'] = df['in_discount']
         
         # 5. Pivots
         df = self.pivots.calculate_all_pivots(df)
@@ -672,39 +653,27 @@ class FeatureEngineering:
         # 6. Confluence
         df['confluence_score'] = self.confluence.calculate_confluence_score(df, df['atr'])
         
-        # 7. External
+        # 7. External (DXY + News) - using robust alignment
         df = self._add_external_features(df)
         
         # 8. Time features
-        if 'time' in df.columns:
-            df['time'] = pd.to_datetime(df['time'])
-            df['day_of_week'] = df['time'].dt.dayofweek
-            df['month'] = df['time'].dt.month
+        df['day_of_week'] = df['time'].dt.dayofweek
+        df['month'] = df['time'].dt.month
         
-        # Fill NaNs
+        # Fill NaNs globally
         df = df.fillna(method='ffill').fillna(0)
         
-        # Feature Selection
-        # Exclude Target/Raw columns AND new visual columns not in training
-        exclude_cols = ['time', 'open', 'high', 'low', 'close', 'volume', 'spread', 'real_volume',
-                        'R2_traditional', 'S2_traditional', 'R2_fibonacci', 'S2_fibonacci']
-        feature_cols = [c for c in df.columns if c not in exclude_cols]
-        # Exclude intermediate calc columns if needed, but for now keep all numericals
-        # Filter strictly numeric
-        features_df = df[feature_cols].select_dtypes(include=[np.number])
+        # SCHEMA ENFORCEMENT
+        features_df = validate_feature_schema(df, config.SCHEMA_PATH)
         
-        # Clean Features (Handle Inf/NaN globally)
-        features_df = features_df.replace([np.inf, -np.inf], np.nan)
-        features_df = features_df.fillna(0)
-        
-        print(f"Features: {features_df.shape[1]}")
+        logger.info(f"Features built: {features_df.shape}")
         return df, features_df
 
 # ============================================================================
 # MAIN PIPELINE
 # ============================================================================
 
-def run_pipeline(data_path="data/XAUUSD_history.csv", suffix=""):
+def run_pipeline(data_path="data/XAUUSD_history.csv", suffix="", symbol="XAUUSD"):
     print(f"Loading data from {data_path}...")
     if not os.path.exists(data_path):
         print(f"Error: {data_path} not found.")
@@ -715,7 +684,7 @@ def run_pipeline(data_path="data/XAUUSD_history.csv", suffix=""):
     
     # Process
     try:
-        fe = FeatureEngineering()
+        fe = FeatureEngineering(symbol=symbol)
         df_enhanced, features = fe.build_features(df)
         
         # Targets
@@ -730,15 +699,14 @@ def run_pipeline(data_path="data/XAUUSD_history.csv", suffix=""):
         scaler = RobustScaler()
         X_scaled = scaler.fit_transform(features)
         
-        # Create Sequences (LSTM style : [Samples, TimeSteps, Features])
-        # For Tree models we can flatten later
+        # Create Sequences
         X_seq = []
         y_seq_class = []
         
         win = config.WINDOW
-        for i in range(win, len(X_scaled) - 1): # -1 because target is next day
+        for i in range(win, len(X_scaled) - 1): 
             X_seq.append(X_scaled[i-win:i])
-            y_seq_class.append(y_class[i]) # Target for prediction at i is outcome of i+1
+            y_seq_class.append(y_class[i])
         
         X_seq = np.array(X_seq)
         y_seq_class = np.array(y_seq_class)
@@ -747,13 +715,11 @@ def run_pipeline(data_path="data/XAUUSD_history.csv", suffix=""):
         
         # Save
         if suffix:
-            suffix = "_" + suffix.lstrip("_") # Ensure single leading underscore if present
+            suffix = "_" + suffix.lstrip("_")
         
+        print(f"Saving artifacts to data/X{suffix}.npy ...")
         np.save(f"data/X{suffix}.npy", X_seq)
         np.save(f"data/y_class{suffix}.npy", y_seq_class)
-        # Regression align
-        # y_reg might be longer, slice to match sequence logic
-        # y_reg matches df len. sequences start at `win` and end at -1.
         y_reg_aligned = y_reg[win:-1]
         np.save(f"data/y_reg{suffix}.npy", y_reg_aligned)
         
@@ -765,15 +731,15 @@ def run_pipeline(data_path="data/XAUUSD_history.csv", suffix=""):
         print(f"Done. Artifacts saved with suffix '{suffix}'.")
     except Exception as e:
         print(f"Pipeline failed: {e}")
+        import traceback
+        traceback.print_exc()
 
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument("--data", type=str, default="data/XAUUSD_history.csv")
     parser.add_argument("--suffix", type=str, default="")
+    parser.add_argument("--symbol", type=str, default="XAUUSD")
     args = parser.parse_args()
     
-    run_pipeline(args.data, args.suffix)
-
-if __name__ == "__main__":
-    run_pipeline()
+    run_pipeline(args.data, args.suffix, args.symbol)

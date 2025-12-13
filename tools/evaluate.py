@@ -42,6 +42,8 @@ class Config:
     THRESHOLDS = [0.50, 0.55, 0.60, 0.65, 0.70, 0.75, 0.80, 0.85, 0.90]
 
 config = Config()
+from src.utils.logger import get_logger
+logger = get_logger()
 
 # ============================================================================
 # UTILS
@@ -78,50 +80,58 @@ def load_data(suffix=""):
 from src.models.model_factory import ModelFactory # Updated location
 
 def load_all_models(input_shape, suffix=""):
-    print(f"Loading models (Suffix: {suffix})...")
+    logger.info(f"Loading models (Suffix: {suffix})...")
     
     if suffix:
         suffix_clean = "_" + suffix.lstrip("_")
     else:
         suffix_clean = ""
         
-    # XGBoost
-    model_xgb = xgb.XGBClassifier()
-    model_xgb.load_model(config.MODEL_DIR / f"xgboost_model{suffix_clean}.json")
-    
-    # LightGBM
-    model_lgb = lgb.Booster(model_file=str(config.MODEL_DIR / f"lightgbm_model{suffix_clean}.txt"))
-    
-    # Keras Models (Rebuild and Load Weights)
-    print("  Rebuilding Keras models...")
-    model_lstm = ModelFactory.get_bilstm_attention(input_shape)
     try:
-        model_lstm.load_weights(config.MODEL_DIR / f"bilstm_model{suffix_clean}.h5")
-    except Exception as e:
-        print(f"  Warning: LSTM load_weights failed: {e}")
+        # XGBoost
         try:
-             model_lstm = load_model(config.MODEL_DIR / f"bilstm_model{suffix_clean}.h5")
-        except:
-             model_lstm = None
+            model_xgb = xgb.XGBClassifier()
+            model_xgb.load_model(config.MODEL_DIR / f"xgboost_model{suffix_clean}.json")
+        except Exception as e:
+            logger.warning(f"  Warning: XGBoost load failed: {e}")
+            model_xgb = None
 
-    model_trans = ModelFactory.get_transformer(input_shape)
-    try:
-        model_trans.load_weights(config.MODEL_DIR / f"transformer_model{suffix_clean}.h5")
-    except Exception as e:
-        print(f"  Warning: Transformer load_weights failed: {e}")
+        # LightGBM
         try:
-            model_trans = load_model(config.MODEL_DIR / f"transformer_model{suffix_clean}.h5")
-        except:
-             model_trans = None
-    
-    # Meta Learner
-    try:
-        with open(config.MODEL_DIR / f"meta_learner{suffix_clean}.pkl", "rb") as f:
-            meta_learner = pickle.load(f)
-    except:
-         meta_learner = None
+            model_lgb = lgb.Booster(model_file=str(config.MODEL_DIR / f"lightgbm_model{suffix_clean}.txt"))
+        except Exception as e:
+            print(f"  Warning: LightGBM load failed: {e}")
+            model_lgb = None
+
+        # Keras Models (Rebuild and Load Weights)
+        print("  Rebuilding Keras models...")
         
-    return model_xgb, model_lgb, model_lstm, model_trans, meta_learner
+        try:
+            model_lstm = ModelFactory.get_bilstm_attention(input_shape)
+            model_lstm.load_weights(config.MODEL_DIR / f"bilstm_model{suffix_clean}.h5")
+        except Exception as e:
+            print(f"  Warning: BiLSTM load/weights failed: {e}")
+            model_lstm = None
+            
+        try:
+            model_trans = ModelFactory.get_transformer(input_shape)
+            model_trans.load_weights(config.MODEL_DIR / f"transformer_model{suffix_clean}.h5")
+        except Exception as e:
+             print(f"  Warning: Transformer load/weights failed: {e}")
+             model_trans = None
+        # Meta Learner
+        try:
+            with open(config.MODEL_DIR / f"meta_learner{suffix_clean}.pkl", "rb") as f:
+                meta_learner = pickle.load(f)
+        except Exception as e:
+            logger.warning(f"  Warning: Meta Learner load failed: {e}")
+            meta_learner = None
+            
+        return [model_xgb, model_lgb, model_lstm, model_trans, meta_learner]
+
+    except Exception as e:
+        logger.error(f"CRITICAL: Model loading crashed: {e}")
+        return [None, None, None, None, None]
 
 def evaluate(suffix=""):
     print(f"Evaluating (Suffix: {suffix})...")

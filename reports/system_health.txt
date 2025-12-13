@@ -1,0 +1,69 @@
+APEX TRADE AI - SYSTEM HEALTH REPORT
+====================================
+
+1. Feature Schema Validation
+----------------------------
+Schema loaded. defined features: 71
+
+2. Model Artifacts Check
+------------------------
+
+[Timeframe Suffix: (Daily)]
+  OK: xgboost_model.json (3193.0 KB)
+  OK: lightgbm_model.txt (2060.2 KB)
+  OK: bilstm_model.h5 (2712.6 KB)
+  OK: transformer_model.h5 (1131.0 KB)
+  OK: meta_learner.pkl (6.6 KB)
+
+[Timeframe Suffix: _4h]
+  OK: xgboost_model_4h.json (2962.9 KB)
+  OK: lightgbm_model_4h.txt (2058.1 KB)
+  OK: bilstm_model_4h.h5 (2712.6 KB)
+  OK: transformer_model_4h.h5 (1131.0 KB)
+  OK: meta_learner_4h.pkl (7.0 KB)
+
+[Timeframe Suffix: _1h]
+  OK: xgboost_model_1h.json (2974.5 KB)
+  OK: lightgbm_model_1h.txt (2058.2 KB)
+  OK: bilstm_model_1h.h5 (2712.6 KB)
+  OK: transformer_model_1h.h5 (1131.0 KB)
+  OK: meta_learner_1h.pkl (6.9 KB)
+
+[Timeframe Suffix: _30m]
+  OK: xgboost_model_30m.json (3145.8 KB)
+  OK: lightgbm_model_30m.txt (2054.8 KB)
+  OK: bilstm_model_30m.h5 (2712.6 KB)
+  OK: transformer_model_30m.h5 (1131.0 KB)
+  OK: meta_learner_30m.pkl (7.2 KB)
+
+[Timeframe Suffix: _15m]
+  OK: xgboost_model_15m.json (3087.3 KB)
+  OK: lightgbm_model_15m.txt (2054.9 KB)
+  OK: bilstm_model_15m.h5 (2712.6 KB)
+  OK: transformer_model_15m.h5 (1131.0 KB)
+  OK: meta_learner_15m.pkl (7.0 KB)
+
+All model artifacts present.
+
+3. Functional Validation (Predictor Load)
+-----------------------------------------
+
+Testing Daily Predictor...
+  SUCCESS. Signal: Neutral (Conf: 0.35)
+  SMC Zones: 0 Bull OBs found.
+
+Testing 4 Hour Predictor...
+  SUCCESS. Signal: Bullish (Conf: 0.41)
+  SMC Zones: 0 Bull OBs found.
+
+Testing 1 Hour Predictor...
+  SUCCESS. Signal: Bullish (Conf: 0.38)
+  SMC Zones: 0 Bull OBs found.
+
+Testing 30 Min Predictor...
+  SUCCESS. Signal: Neutral (Conf: 0.40)
+  SMC Zones: 0 Bull OBs found.
+
+Testing 15 Min Predictor...
+  SUCCESS. Signal: Neutral (Conf: 0.67)
+  SMC Zones: 0 Bull OBs found.

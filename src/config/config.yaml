@@ -1,0 +1,52 @@
+# APEX TRADE AI Configuration
+
+data:
+  base_dir: "data"
+  history_file: "XAUUSD_history.csv"
+  dxy_file: "dxy_history.csv"
+  news_file: "news_sentiment.csv"
+  feature_schema: "src/config/feature_schema.json"
+
+models:
+  model_dir: "saved_models"
+  archive_dir: "saved_models/archive"
+  timeframes: ["1d", "4h", "1h", "30m", "15m", "5m"]
+
+training:
+  epochs: 30
+  batch_size: 32
+  test_split: 0.2
+  n_splits: 5
+  seed: 42
+
+trading:
+  symbol: "XAUUSD"
+  risk_reward_ratio: 1.5
+  max_risk_per_trade: 0.02
+  initial_bankroll: 1000.0
+
+logging:
+  level: "INFO"
+  file: "apex_trade_ai.log"
+  rotate_backup_count: 5
+
+features:
+  window_size: 50
+  min_periods: 200
+  swing_length: 10
+  internal_structure_length: 3
+  movement_threshold: 0.0002
+  eqh_eql_threshold: 0.0005
+  fvg_min_size: 0.0002
+  pivot_types: ["traditional", "fibonacci", "camarilla", "woodie", "demark"]
+  schema_path: "src/config/feature_schema_v2.json"
+
+endpoints:
+  azure_openai:
+    key_env_var: "AZURE_OPENAI_KEY"
+    endpoint_env_var: "AZURE_OPENAI_ENDPOINT"
+    deployment_name: "gpt-4o"
+  azure_anomaly:
+    key_env_var: "AZURE_ANOMALY_KEY"
+    endpoint_env_var: "AZURE_ANOMALY_ENDPOINT"
+

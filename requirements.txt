@@ -5,9 +5,7 @@ xgboost>=2.0.0
 lightgbm>=4.0.0
 tensorflow>=2.15.0
 optuna>=3.4.0
-fastapi>=0.104.0
-uvicorn>=0.24.0
-pydantic>=2.5.0
+
 transformers>=4.35.0
 shap>=0.43.0
 matplotlib>=3.8.0
@@ -15,3 +13,4 @@ seaborn>=0.13.0
 yfinance>=0.2.0
 torch
 python-dotenv
+pytest>=7.0.0

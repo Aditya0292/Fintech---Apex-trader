@@ -1,0 +1,35 @@
+XAUUSD:
+  role: swing
+  timeframes: [daily, 4h, 1h]
+  volatility_profile: high
+  model_suffix: _xau
+  smc_window: 200
+  news_weight: 1.4
+  csm_currencies: ["USD"]
+
+EURUSD:
+  role: intra_swing
+  timeframes: [daily, 4h, 1h, 30m, 15m, 5m]
+  volatility_profile: medium
+  model_suffix: _eur
+  smc_window: 500
+  news_weight: 1.2
+  csm_currencies: ["EUR", "USD"]
+
+GBPUSD:
+  role: intra_swing
+  timeframes: [daily, 4h, 1h, 30m, 15m, 5m]
+  volatility_profile: medium_high
+  model_suffix: _gbp
+  smc_window: 500
+  news_weight: 1.25
+  csm_currencies: ["GBP", "USD"]
+
+USDJPY:
+  role: intra_swing_scalp
+  timeframes: [daily, 4h, 1h, 30m, 15m, 5m]
+  volatility_profile: low_medium
+  model_suffix: _jpy
+  smc_window: 500
+  news_weight: 1.0
+  csm_currencies: ["USD", "JPY"]

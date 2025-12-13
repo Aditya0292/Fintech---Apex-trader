@@ -56,6 +56,33 @@ To scale this globally, we leverage the **Microsoft Intelligent Cloud**:
 
 ---
 
+## 🧠 Microsoft AI Integration Strategy (The "Secret Sauce")
+
+We are enhancing the core logic with **Azure AI Services** to move beyond simple "if-this-then-that" trading:
+
+### 1. Azure OpenAI (GPT-4o) - *The "Analyst"*
+*   **Current State:** Numeric outputs (e.g., "Confidence: 72%").
+*   **Upgrade:** Generating **Human-Readable Daily Briefings**.
+    *   *Usage:* The model ingests the raw news vectors and technical indicators to write a plain-English explanation: *"Caution: Despite a Bullish Order Block, the USD Inflation shock (CPI) is too strong. I am sitting out until 14:00."*
+    *   *Feature:* **"Chat with Data"** Copilot on the dashboard to ask questions like *"What happens if Powell raises rates?"*
+
+### 2. Azure AI Anomaly Detector - *The "Watchdog"*
+*   **Current State:** Simple threshold-based alerts.
+*   **Upgrade:** Univariate and Multivariate Anomaly Detection.
+    *   *Usage:* Monitors effective spread, volume, and tick speed in real-time to detect **"Flash Crash" signatures** or liquidity dry-ups *before* price moves.
+
+### 3. Azure Automated ML (AutoML) - *The "Optimizer"*
+*   **Current State:** Static XGBoost/LSTM models manually tuned.
+*   **Upgrade:** Continuous Retraining Pipeline.
+    *   *Usage:* Every weekend, an Azure Function triggers an **AutoML** job to find the perfect hyper-parameters for the current market regime (e.g., High Volatility vs. Ranging) and deploys the new model endpoint automatically.
+
+### 4. Azure AI Document Intelligence - *The "Reader"*
+*   **Current State:** Scrapes simple HTML calendars.
+*   **Upgrade:** Parsing complex financial documents.
+    *   *Usage:* Instantly extracting sentiment from **FED Meeting Minutes (PDF)** or Central Bank Statements, which traditional scrapers cannot read.
+
+---
+
 ## 💰 Business Model
 **Freemium SaaS**
 *   **Free Tier:** Daily Bias (Bullish/Bearish) & 1 news alert per day.
