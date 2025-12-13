@@ -111,6 +111,3 @@ Ensure `data/` directory contains history files (e.g., `XAUUSD_history.csv`) or 
 - **`tools/predict_all.py`**: The bridge. Runs analysis and outputs JSON for the frontend.
 - **`src/features/feature_pipeline.py`**: Feature engineering engine (77+ features/asset).
 - **`src/models/`**: Stores trained XGBoost/LSTM models for each timeframe.
-
----
-*Powered by Google DeepMind Agentic Coding*
