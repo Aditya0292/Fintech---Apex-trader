@@ -161,18 +161,37 @@ class Predictor:
         X_std = np.std(X_seq, axis=1)
         X_tree = np.hstack([X_last, X_mean, X_std])
         
-        if self.models[0] is None:
-             return {"error": "Models not loaded correctly."}
+        # Check if at least one model is loaded (Relaxed from strict [0])
+        if all(m is None for m in self.models[:4]):
+             return {"error": "No models loaded."}
 
         xgb_m, lgb_m, lstm_m, trans_m, meta_m = self.models
         
         # 5. Base Predictions (Optimized)
         # Use predict_on_batch to avoid retracing validation overhead for single batch
-        p_xgb = xgb_m.predict_proba(X_tree)
-        p_lgb = lgb_m.predict(X_tree) 
+        # Fallback to zeros if model missing
+        if xgb_m:
+            try:
+                p_xgb = xgb_m.predict_proba(X_tree)
+            except:
+                p_xgb = np.zeros((1, 3))
+        else:
+            p_xgb = np.zeros((1, 3))
+            
+        if lgb_m:
+            try:
+                p_lgb = lgb_m.predict(X_tree)
+                # Ensure 2D
+                if len(p_lgb.shape) == 1:
+                    p_lgb = p_lgb.reshape(1, -1)
+            except:
+                p_lgb = np.zeros((1, 3))
+        else:
+            p_lgb = np.zeros((1, 3))
         
         p_lstm = lstm_m.predict_on_batch(X_seq) if lstm_m else np.zeros((1,3))
         p_trans = trans_m.predict_on_batch(X_seq) if trans_m else np.zeros((1,3))
+
         
         # 6. Stacking
         stacked = np.hstack([p_xgb, p_lgb, p_lstm, p_trans])
